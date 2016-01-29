@@ -208,7 +208,7 @@ void Messaging_Callback(SKSEMessagingInterface::Message* msg) {
 void FlushBufferedExperience(StaticFunctionTag*, float daysSlept, bool interupted) {
 	_MESSAGE("FlushBufferedExperience begin");
 
-	g_experienceBuffer.flushExperience(fabsf(fminf(1.0f, daysSlept)));
+	g_experienceBuffer.flushExperience(g_settings.enableSleepTimeRequirement ? fabsf(fminf(1.0f, daysSlept / g_settings.minDaysSleepNeeded)) : 1.0f);
 
 	_MESSAGE("FlushBufferedExperience end");
 }
