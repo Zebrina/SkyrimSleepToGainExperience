@@ -30,7 +30,7 @@ struct Settings {
 UInt32: 31;
 	float percentExpRequiresSleep;
 	float minDaysSleepNeeded;
-	float penaltyBonusPercent;
+	float interuptedPenaltyPercent;
 
 	Settings() {
 		ZeroMemory(this, sizeof(Settings));
@@ -296,6 +296,8 @@ extern "C" {
 	bool SKSEPlugin_Load(const SKSEInterface* skse) {
 		_MESSAGE("SKSEPlugin_Load begin");
 
+		char stringBuffer[16];
+
 		g_messaging->RegisterListener(g_pluginHandle, "SKSE", Messaging_Callback);
 
 		// configuration
@@ -305,7 +307,10 @@ extern "C" {
 		// general
 		g_settings.enableSleepTimeRequirement = GetPrivateProfileInt(sectionName, "bEnableSleepTimeRequirement", 0, configFileName);
 		g_settings.minDaysSleepNeeded = fabsf((float)GetPrivateProfileInt(sectionName, "iMinHoursSleepNeeded", 7, configFileName)) / 12.0f;
-		g_settings.percentExpRequiresSleep = fminf(1.0, fabsf((float)GetPrivateProfileInt(sectionName, "iPercentRequiresSleep", 100, configFileName) / 100.0f));
+		GetPrivateProfileString(sectionName, "fPercentRequiresSleep", "1.0", stringBuffer, sizeof(stringBuffer), configFileName);
+		g_settings.percentExpRequiresSleep = fminf(1.0f, fabsf(strtof(stringBuffer, nullptr)));
+		GetPrivateProfileString(sectionName, "fInteruptedPenaltyPercent", "1.0", stringBuffer, sizeof(stringBuffer), configFileName);
+		g_settings.interuptedPenaltyPercent = fminf(1.0f, fabsf(strtof(stringBuffer, nullptr)));
 
 		// register callbacks and unique ID for serialization
 

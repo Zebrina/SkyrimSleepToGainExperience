@@ -129,9 +129,6 @@
     <ProjectReference Include="..\..\common\common_vc9.vcxproj">
       <Project>{20c6411c-596f-4b85-be4e-8bc91f59d8a6}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\..\Niflib\niflib.vcxproj">
-      <Project>{19fd8ee6-79cc-4bac-9744-d9573be47c7e}</Project>
-    </ProjectReference>
     <ProjectReference Include="..\skse\skse.vcxproj">
       <Project>{aa0365ec-47ea-45aa-bb1f-ebbcccc466f2}</Project>
     </ProjectReference>
