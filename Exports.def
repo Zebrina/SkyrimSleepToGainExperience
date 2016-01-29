@@ -1,0 +1,4 @@
+LIBRARY	"SleepToGainExperience"
+EXPORTS
+SKSEPlugin_Query
+SKSEPlugin_Load
