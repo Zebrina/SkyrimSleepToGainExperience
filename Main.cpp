@@ -9,6 +9,8 @@
 
 #include "skse/PapyrusNativeFunctions.h"
 
+#include <cmath>
+
 constexpr UInt32 pcVTableAdvanceSkillOffset = 0xF6;
 constexpr UInt32 pcVTableAdvanceSkillMemOffset = pcVTableAdvanceSkillOffset * 4;
 
@@ -22,6 +24,20 @@ SKSEPapyrusInterface*		g_papyrus = nullptr;
 
 typedef void (PlayerCharacter::*Actor_AdvanceSkill_Method)(UInt32, float, UInt32, UInt32);
 Actor_AdvanceSkill_Method PlayerCharacter_AdvanceSkill = nullptr;
+
+struct Settings {
+	UInt32 enableSleepTimeRequirement : 1;
+UInt32: 31;
+	float percentExpRequiresSleep;
+	float minDaysSleepNeeded;
+	float penaltyBonusPercent;
+
+	Settings() {
+		ZeroMemory(this, sizeof(Settings));
+	}
+};
+
+Settings g_settings;
 
 struct SkillExperienceBuffer {
 	enum : UInt32 {
@@ -47,7 +63,7 @@ struct SkillExperienceBuffer {
 		LastSkillId = Enchanting,
 	};
 
-	float expBuf[(Enchanting - OneHanded) + 1];
+	float expBuf[(LastSkillId - FirstSkillId) + 1];
 
 	inline SkillExperienceBuffer() {
 		clear();
@@ -59,11 +75,12 @@ struct SkillExperienceBuffer {
 		}
 	}
 
-	void flushExperience() {
+	void flushExperience(float percent) {
 		for (UInt32 skillId = FirstSkillId; skillId <= LastSkillId; ++skillId) {
 			if (expBuf[skillId - FirstSkillId] > 0.0f) {
-				((**g_thePlayer).*PlayerCharacter_AdvanceSkill)(skillId, expBuf[skillId - FirstSkillId], 0, 0);
-				expBuf[skillId - FirstSkillId] = 0.0f;
+				float toAdd = expBuf[skillId - FirstSkillId] * percent;
+				((**g_thePlayer).*PlayerCharacter_AdvanceSkill)(skillId, toAdd, 0, 0);
+				expBuf[skillId - FirstSkillId] -= toAdd;
 			}
 		}
 	}
@@ -97,11 +114,11 @@ void __stdcall AdvanceSkill_Hooked(/*void* thisPtr, */UInt32 skillId, float poin
 
 		//_MESSAGE("handle call");
 
-		g_experienceBuffer.addExperience(skillId, points);
+		g_experienceBuffer.addExperience(skillId, g_settings.percentExpRequiresSleep * points);
 
 		// call the original function but with points = 0
 		// not sure what effect not calling it might have
-		((**g_thePlayer).*PlayerCharacter_AdvanceSkill)(skillId, 0.0f, unk1, unk2);
+		((**g_thePlayer).*PlayerCharacter_AdvanceSkill)(skillId, (1.0f - g_settings.percentExpRequiresSleep) * points, unk1, unk2);
 	}
 	else {
 		//_MESSAGE("ignore call");
@@ -188,16 +205,16 @@ void Messaging_Callback(SKSEMessagingInterface::Message* msg) {
 	}
 }
 
-void FlushBufferedExperience(StaticFunctionTag*) {
+void FlushBufferedExperience(StaticFunctionTag*, float daysSlept, bool interupted) {
 	_MESSAGE("FlushBufferedExperience begin");
 
-	g_experienceBuffer.flushExperience();
+	g_experienceBuffer.flushExperience(fabsf(fminf(1.0f, daysSlept)));
 
 	_MESSAGE("FlushBufferedExperience end");
 }
 
 bool Papyrus_RegisterFunctions(VMClassRegistry* registry) {
-	registry->RegisterFunction(new NativeFunction0<StaticFunctionTag, void>("FlushBufferedExperience", "SleepToGainExperience", FlushBufferedExperience, registry));
+	registry->RegisterFunction(new NativeFunction2<StaticFunctionTag, void, float, bool>("FlushBufferedExperience", "SleepToGainExperience", FlushBufferedExperience, registry));
 
 	return true;
 }
@@ -210,7 +227,7 @@ extern "C" {
 		// populate info structure
 		info->infoVersion = PluginInfo::kInfoVersion;
 		info->name = "Sleep To Gain Experience Plugin";
-		info->version = 1;
+		info->version = 2;
 
 		// store plugin handle so we can identify ourselves later
 		g_pluginHandle = skse->GetPluginHandle();
@@ -276,10 +293,19 @@ extern "C" {
 		return true;
 	}
 
-	bool SKSEPlugin_Load(const SKSEInterface * skse) {
+	bool SKSEPlugin_Load(const SKSEInterface* skse) {
 		_MESSAGE("SKSEPlugin_Load begin");
 
 		g_messaging->RegisterListener(g_pluginHandle, "SKSE", Messaging_Callback);
+
+		// configuration
+		constexpr const char* configFileName = "Data\\SKSE\\Plugins\\SleepToGainExperience.ini";
+		constexpr const char* sectionName = "General";
+
+		// general
+		g_settings.enableSleepTimeRequirement = GetPrivateProfileInt(sectionName, "bEnableSleepTimeRequirement", 0, configFileName);
+		g_settings.minDaysSleepNeeded = fabsf((float)GetPrivateProfileInt(sectionName, "iMinHoursSleepNeeded", 7, configFileName)) / 12.0f;
+		g_settings.percentExpRequiresSleep = fminf(1.0, fabsf((float)GetPrivateProfileInt(sectionName, "iPercentRequiresSleep", 100, configFileName) / 100.0f));
 
 		// register callbacks and unique ID for serialization
 
