@@ -94,17 +94,6 @@ SkillExperienceBuffer g_experienceBuffer;
 
 // virtual void AdvanceSkill(UInt32 skillId, float points, UInt32 unk1, UInt32 unk2);
 void __stdcall AdvanceSkill_Hooked(/*void* thisPtr, */UInt32 skillId, float points, UInt32 unk1, UInt32 unk2) {
-	//_MESSAGE("AdvanceSkill_Hooked begin");
-
-	//_MESSAGE("player\t0x%.8x", *g_thePlayer);
-
-	//_MESSAGE("skillId\t0x%.8x", skillId);
-	//_MESSAGE("points\t%f", points);
-
-	//_MESSAGE("unk1\t0x%.8x", unk1);
-	//_MESSAGE("unk1 as float\t%f", *reinterpret_cast<float*>(&a));
-	//_MESSAGE("unk2\t0x%.8x", unk2);
-
 	static BSFixedString ConsoleMenu = "Console";
 	static BSFixedString ConsoleNativeUIMenu = "Console Native UI Menu";
 
@@ -188,17 +177,24 @@ void Serialization_Load(SKSESerializationInterface* serializationInterface) {
 
 void Messaging_Callback(SKSEMessagingInterface::Message* msg) {
 	if (msg->type == SKSEMessagingInterface::kMessage_DataLoaded) {
+		// All forms are loaded
+
 		_MESSAGE("kMessage_DataLoaded begin");
 
+		// Retrieve points to vtable for PlayerCharacter.
 		UInt32* pcVTable = (UInt32*)(*((UInt32*)(*g_thePlayer)));
 
+		// Save old AdvanceSkill method.
 		*reinterpret_cast<UInt32*>(&PlayerCharacter_AdvanceSkill) = (UInt32)pcVTable[pcVTableAdvanceSkillOffset];
 
+		// Let me write my hook!
 		UInt32 oldProtect = 0;
 		VirtualProtect(pcVTable + pcVTableAdvanceSkillMemOffset, sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect);
 
+		// Replace old AdvanceSkill method with my AdvanceSkill_Hooked function. 
 		pcVTable[pcVTableAdvanceSkillOffset] = (UInt32)AdvanceSkill_Hooked;
 
+		// I'm done writing.
 		VirtualProtect(pcVTable + pcVTableAdvanceSkillMemOffset, sizeof(void*), oldProtect, nullptr);
 
 		_MESSAGE("kMessage_DataLoaded end");
@@ -298,8 +294,6 @@ extern "C" {
 
 		char stringBuffer[16];
 
-		g_messaging->RegisterListener(g_pluginHandle, "SKSE", Messaging_Callback);
-
 		// configuration
 		constexpr const char* configFileName = "Data\\SKSE\\Plugins\\SleepToGainExperience.ini";
 		constexpr const char* sectionName = "General";
@@ -311,6 +305,9 @@ extern "C" {
 		g_settings.percentExpRequiresSleep = fminf(1.0f, fabsf(strtof(stringBuffer, nullptr)));
 		GetPrivateProfileString(sectionName, "fInteruptedPenaltyPercent", "1.0", stringBuffer, sizeof(stringBuffer), configFileName);
 		g_settings.interuptedPenaltyPercent = fminf(1.0f, fabsf(strtof(stringBuffer, nullptr)));
+
+		// We can't write the hook here as g_thePlayer is not initialized so instead we do it when all forms have been loaded.
+		g_messaging->RegisterListener(g_pluginHandle, "SKSE", Messaging_Callback);
 
 		// register callbacks and unique ID for serialization
 
