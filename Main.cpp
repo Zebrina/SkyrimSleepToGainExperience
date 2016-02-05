@@ -77,8 +77,8 @@ struct SkillExperienceBuffer {
 
 	void flushExperience(float percent) {
 		for (UInt32 skillId = FirstSkillId; skillId <= LastSkillId; ++skillId) {
-			if (expBuf[skillId - FirstSkillId] > 0.0f) {
-				float toAdd = expBuf[skillId - FirstSkillId] * percent;
+			float toAdd = expBuf[skillId - FirstSkillId] * percent;
+			if (toAdd > 0.0f) {
 				((**g_thePlayer).*PlayerCharacter_AdvanceSkill)(skillId, toAdd, 0, 0);
 				expBuf[skillId - FirstSkillId] -= toAdd;
 			}
@@ -98,7 +98,7 @@ void __stdcall AdvanceSkill_Hooked(/*void* thisPtr, */UInt32 skillId, float poin
 	static BSFixedString ConsoleNativeUIMenu = "Console Native UI Menu";
 
 	MenuManager* menuManager = MenuManager::GetSingleton();
-	if (skillId >= SkillExperienceBuffer::OneHanded && skillId <= SkillExperienceBuffer::Enchanting &&
+	if (skillId >= SkillExperienceBuffer::FirstSkillId && skillId <= SkillExperienceBuffer::Enchanting &&
 		menuManager && !menuManager->IsMenuOpen(&ConsoleMenu) && !menuManager->IsMenuOpen(&ConsoleNativeUIMenu)) {
 
 		//_MESSAGE("handle call");
@@ -202,11 +202,11 @@ void Messaging_Callback(SKSEMessagingInterface::Message* msg) {
 }
 
 void FlushBufferedExperience(StaticFunctionTag*, float daysSlept, bool interupted) {
-	_MESSAGE("FlushBufferedExperience begin");
+	//_MESSAGE("FlushBufferedExperience begin");
 
-	g_experienceBuffer.flushExperience(g_settings.enableSleepTimeRequirement ? fabsf(fminf(1.0f, daysSlept / g_settings.minDaysSleepNeeded)) : 1.0f);
+	g_experienceBuffer.flushExperience((g_settings.enableSleepTimeRequirement ? fminf(1.0f, daysSlept / g_settings.minDaysSleepNeeded) : 1.0f) * (interupted ? g_settings.interuptedPenaltyPercent : 1.0f));
 
-	_MESSAGE("FlushBufferedExperience end");
+	//_MESSAGE("FlushBufferedExperience end");
 }
 
 bool Papyrus_RegisterFunctions(VMClassRegistry* registry) {
@@ -300,7 +300,7 @@ extern "C" {
 
 		// general
 		g_settings.enableSleepTimeRequirement = GetPrivateProfileInt(sectionName, "bEnableSleepTimeRequirement", 0, configFileName);
-		g_settings.minDaysSleepNeeded = fabsf((float)GetPrivateProfileInt(sectionName, "iMinHoursSleepNeeded", 7, configFileName)) / 12.0f;
+		g_settings.minDaysSleepNeeded = fabsf((float)GetPrivateProfileInt(sectionName, "iMinHoursSleepNeeded", 7, configFileName)) / 24.0f;
 		GetPrivateProfileString(sectionName, "fPercentRequiresSleep", "1.0", stringBuffer, sizeof(stringBuffer), configFileName);
 		g_settings.percentExpRequiresSleep = fminf(1.0f, fabsf(strtof(stringBuffer, nullptr)));
 		GetPrivateProfileString(sectionName, "fInteruptedPenaltyPercent", "1.0", stringBuffer, sizeof(stringBuffer), configFileName);
