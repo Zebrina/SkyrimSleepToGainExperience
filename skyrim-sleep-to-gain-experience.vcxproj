@@ -69,7 +69,7 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <OutDir>$(ProjectDir)Plugin\</OutDir>
+    <OutDir>..\..\..\..\Program Files %28x86%29\Steam\steamapps\common\Skyrim\Data\SKSE\Plugins\</OutDir>
     <LinkIncremental>false</LinkIncremental>
     <TargetName>SleepToGainExperience</TargetName>
   </PropertyGroup>
