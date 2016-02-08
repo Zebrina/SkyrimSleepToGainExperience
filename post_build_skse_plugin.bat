@@ -1,0 +1,1 @@
+copy /Y /B %cd%\..\Release\%1 %cd%\Distributable\SKSE\Plugins\%1

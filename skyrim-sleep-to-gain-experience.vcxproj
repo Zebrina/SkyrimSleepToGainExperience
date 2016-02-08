@@ -69,7 +69,6 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <OutDir>..\..\..\..\Program Files %28x86%29\Steam\steamapps\common\Skyrim\Data\SKSE\Plugins\</OutDir>
     <LinkIncremental>false</LinkIncremental>
     <TargetName>SleepToGainExperience</TargetName>
   </PropertyGroup>
@@ -111,6 +110,9 @@
       <ModuleDefinitionFile>Exports.def</ModuleDefinitionFile>
       <SubSystem>Windows</SubSystem>
     </Link>
+    <PostBuildEvent>
+      <Command>post_build_skse_plugin SleepToGainExperience.dll</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
