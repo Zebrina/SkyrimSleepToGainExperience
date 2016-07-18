@@ -1,3 +1,5 @@
+#include "SKSEMemUtil.h"
+
 #include "skse/PluginAPI.h"
 #include "skse/skse_version.h"
 #include "skse/GameAPI.h"
@@ -11,8 +13,13 @@
 
 #include <cmath>
 
+constexpr char* PapyrusClassName = "SleepToGainExperience";
+
 constexpr UInt32 pcVTableAdvanceSkillOffset = 0xF6;
-constexpr UInt32 pcVTableAdvanceSkillMemOffset = pcVTableAdvanceSkillOffset * 4;
+//constexpr UInt32 pcVTableAdvanceSkillMemOffset = pcVTableAdvanceSkillOffset * 4;
+
+typedef void (Actor::*Actor_AdvanceSkill_Method)(UInt32, float, UInt32, UInt32);
+Actor_AdvanceSkill_Method Original_PlayerCharacter_AdvanceSkill = nullptr;
 
 IDebugLog gLog("sleep_to_gain_experience.log");
 
@@ -22,8 +29,7 @@ SKSESerializationInterface* g_serialization = nullptr;
 SKSEMessagingInterface*		g_messaging = nullptr;
 SKSEPapyrusInterface*		g_papyrus = nullptr;
 
-typedef void (PlayerCharacter::*Actor_AdvanceSkill_Method)(UInt32, float, UInt32, UInt32);
-Actor_AdvanceSkill_Method PlayerCharacter_AdvanceSkill = nullptr;
+
 
 struct Settings {
 	UInt32 enableSleepTimeRequirement : 1;
@@ -79,7 +85,7 @@ struct SkillExperienceBuffer {
 		for (UInt32 skillId = FirstSkillId; skillId <= LastSkillId; ++skillId) {
 			float toAdd = expBuf[skillId - FirstSkillId] * percent;
 			if (toAdd > 0.0f) {
-				((**g_thePlayer).*PlayerCharacter_AdvanceSkill)(skillId, toAdd, 0, 0);
+				((**g_thePlayer).*Original_PlayerCharacter_AdvanceSkill)(skillId, toAdd, 0, 0);
 				expBuf[skillId - FirstSkillId] -= toAdd;
 			}
 		}
@@ -92,13 +98,13 @@ struct SkillExperienceBuffer {
 
 SkillExperienceBuffer g_experienceBuffer;
 
-// virtual void AdvanceSkill(UInt32 skillId, float points, UInt32 unk1, UInt32 unk2);
-void __stdcall AdvanceSkill_Hooked(/*void* thisPtr, */UInt32 skillId, float points, UInt32 unk1, UInt32 unk2) {
+void __fastcall PlayerCharacter_AdvanceSkill_Hooked(Actor* thisPtr, void*, UInt32 skillId, float points, UInt32 unk1, UInt32 unk2) {
 	static BSFixedString ConsoleMenu = "Console";
 	static BSFixedString ConsoleNativeUIMenu = "Console Native UI Menu";
 
 	MenuManager* menuManager = MenuManager::GetSingleton();
-	if (skillId >= SkillExperienceBuffer::FirstSkillId && skillId <= SkillExperienceBuffer::Enchanting &&
+	if (skillId >= SkillExperienceBuffer::FirstSkillId && skillId <= SkillExperienceBuffer::LastSkillId &&
+		thisPtr == *g_thePlayer &&
 		menuManager && !menuManager->IsMenuOpen(&ConsoleMenu) && !menuManager->IsMenuOpen(&ConsoleNativeUIMenu)) {
 
 		//_MESSAGE("handle call");
@@ -107,12 +113,12 @@ void __stdcall AdvanceSkill_Hooked(/*void* thisPtr, */UInt32 skillId, float poin
 
 		// call the original function but with points = 0
 		// not sure what effect not calling it might have
-		((**g_thePlayer).*PlayerCharacter_AdvanceSkill)(skillId, (1.0f - g_settings.percentExpRequiresSleep) * points, unk1, unk2);
+		((*thisPtr).*Original_PlayerCharacter_AdvanceSkill)(skillId, (1.0f - g_settings.percentExpRequiresSleep) * points, unk1, unk2);
 	}
 	else {
 		//_MESSAGE("ignore call");
 
-		((**g_thePlayer).*PlayerCharacter_AdvanceSkill)(skillId, points, unk1, unk2);
+		((*thisPtr).*Original_PlayerCharacter_AdvanceSkill)(skillId, points, unk1, unk2);
 	}
 
 	//_MESSAGE("AdvanceSkill_Hooked end");
@@ -181,6 +187,9 @@ void Messaging_Callback(SKSEMessagingInterface::Message* msg) {
 
 		_MESSAGE("kMessage_DataLoaded begin");
 
+		Original_PlayerCharacter_AdvanceSkill = SKSEMemUtil::WriteVTableHook(_GetObjectVTable(*g_thePlayer), pcVTableAdvanceSkillOffset, PlayerCharacter_AdvanceSkill_Hooked);
+
+		/*
 		// Retrieve points to vtable for PlayerCharacter.
 		UInt32* pcVTable = (UInt32*)(*((UInt32*)(*g_thePlayer)));
 
@@ -196,6 +205,7 @@ void Messaging_Callback(SKSEMessagingInterface::Message* msg) {
 
 		// I'm done writing.
 		VirtualProtect(pcVTable + pcVTableAdvanceSkillMemOffset, sizeof(void*), oldProtect, nullptr);
+		*/
 
 		_MESSAGE("kMessage_DataLoaded end");
 	}
@@ -208,9 +218,14 @@ void FlushBufferedExperience(StaticFunctionTag*, float daysSlept, bool interupte
 
 	//_MESSAGE("FlushBufferedExperience end");
 }
+void ClearBufferedExperience(StaticFunctionTag*) {
+	g_experienceBuffer.clear();
+}
 
 bool Papyrus_RegisterFunctions(VMClassRegistry* registry) {
-	registry->RegisterFunction(new NativeFunction2<StaticFunctionTag, void, float, bool>("FlushBufferedExperience", "SleepToGainExperience", FlushBufferedExperience, registry));
+	registry->RegisterFunction(new NativeFunction2<StaticFunctionTag, void, float, bool>("FlushBufferedExperience", PapyrusClassName, FlushBufferedExperience, registry));
+	registry->RegisterFunction(new NativeFunction0<StaticFunctionTag, void>("ClearBufferedExperience", PapyrusClassName, ClearBufferedExperience, registry));
+	registry->SetFunctionFlags(PapyrusClassName, "ClearBufferedExperience", VMClassRegistry::kFunctionFlag_NoWait);
 
 	return true;
 }

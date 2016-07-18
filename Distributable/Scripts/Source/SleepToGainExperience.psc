@@ -1,6 +1,7 @@
 scriptname SleepToGainExperience extends Quest
 
 function FlushBufferedExperience(float daysSlept, bool interupted) global native
+function ClearBufferedExperience() global native
 
 event OnInit()
 	self.RegisterForSleep()
