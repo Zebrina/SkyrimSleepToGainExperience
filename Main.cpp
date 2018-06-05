@@ -1,27 +1,28 @@
 #include "SKSEMemUtil.h"
 
-#include "skse/PluginAPI.h"
-#include "skse/skse_version.h"
-#include "skse/GameAPI.h"
+#include "skse64/PluginAPI.h"
+#include "skse64_common/skse_version.h"
+#include "skse64/GameAPI.h"
 
-#include "skse/GameReferences.h"
-#include "skse/GameEvents.h"
-#include "skse/GameTypes.h"
-#include "skse/GameMenus.h"
+#include "skse64/GameData.h"
+#include "skse64/GameReferences.h"
+#include "skse64/GameEvents.h"
+#include "skse64/GameTypes.h"
+#include "skse64/GameMenus.h"
 
-#include "skse/PapyrusNativeFunctions.h"
+#include "skse64/PapyrusNativeFunctions.h"
 
 #include <cmath>
 
 constexpr char* PapyrusClassName = "SleepToGainExperience";
 
-constexpr UInt32 pcVTableAdvanceSkillOffset = 0xF6;
+constexpr UInt32 pcVTableAdvanceSkillOffset = 0xF7;
 //constexpr UInt32 pcVTableAdvanceSkillMemOffset = pcVTableAdvanceSkillOffset * 4;
 
-typedef void (Actor::*Actor_AdvanceSkill_Method)(UInt32, float, UInt32, UInt32);
-Actor_AdvanceSkill_Method Original_PlayerCharacter_AdvanceSkill = nullptr;
+typedef void (*Actor_AdvanceSkill_Method)(Actor*, UInt32, float, UInt32, UInt32);
+Actor_AdvanceSkill_Method PlayerCharacter_AdvanceSkill = nullptr;
 
-IDebugLog gLog("sleep_to_gain_experience.log");
+IDebugLog gLog("SleepToGainExperience.log");
 
 PluginHandle g_pluginHandle = kPluginHandle_Invalid;
 
@@ -77,15 +78,17 @@ struct SkillExperienceBuffer {
 
 	void addExperience(UInt32 skillId, float points) {
 		if (skillId >= FirstSkillId && skillId <= LastSkillId) {
+			//_MESSAGE("adding %f experience to skill: %i", points, skillId);
 			expBuf[skillId - FirstSkillId] += points;
 		}
 	}
 
 	void flushExperience(float percent) {
+		//_MESSAGE("flushExperience(%f)", percent);
 		for (UInt32 skillId = FirstSkillId; skillId <= LastSkillId; ++skillId) {
 			float toAdd = expBuf[skillId - FirstSkillId] * percent;
 			if (toAdd > 0.0f) {
-				((**g_thePlayer).*Original_PlayerCharacter_AdvanceSkill)(skillId, toAdd, 0, 0);
+				PlayerCharacter_AdvanceSkill(*g_thePlayer, skillId, toAdd, 0, 0);
 				expBuf[skillId - FirstSkillId] -= toAdd;
 			}
 		}
@@ -98,39 +101,31 @@ struct SkillExperienceBuffer {
 
 SkillExperienceBuffer g_experienceBuffer;
 
-void __fastcall PlayerCharacter_AdvanceSkill_Hooked(Actor* thisPtr, void*, UInt32 skillId, float points, UInt32 unk1, UInt32 unk2) {
+void PlayerCharacter_AdvanceSkill_Hooked(Actor* _this, UInt32 skillId, float points, UInt32 unk1, UInt32 unk2) {
 	static BSFixedString ConsoleMenu = "Console";
 	static BSFixedString ConsoleNativeUIMenu = "Console Native UI Menu";
 
 	MenuManager* menuManager = MenuManager::GetSingleton();
 	if (skillId >= SkillExperienceBuffer::FirstSkillId && skillId <= SkillExperienceBuffer::LastSkillId &&
-		thisPtr == *g_thePlayer &&
+		_this == *g_thePlayer &&
 		menuManager && !menuManager->IsMenuOpen(&ConsoleMenu) && !menuManager->IsMenuOpen(&ConsoleNativeUIMenu)) {
-
-		//_MESSAGE("handle call");
 
 		g_experienceBuffer.addExperience(skillId, g_settings.percentExpRequiresSleep * points);
 
 		// call the original function but with points = 0
 		// not sure what effect not calling it might have
-		((*thisPtr).*Original_PlayerCharacter_AdvanceSkill)(skillId, (1.0f - g_settings.percentExpRequiresSleep) * points, unk1, unk2);
+		PlayerCharacter_AdvanceSkill(_this, skillId, (1.0f - g_settings.percentExpRequiresSleep) * points, unk1, unk2);
 	}
 	else {
-		//_MESSAGE("ignore call");
-
-		((*thisPtr).*Original_PlayerCharacter_AdvanceSkill)(skillId, points, unk1, unk2);
+		PlayerCharacter_AdvanceSkill(_this, skillId, points, unk1, unk2);
 	}
 
-	//_MESSAGE("AdvanceSkill_Hooked end");
+	_MESSAGE("AdvanceSkill_Hooked end");
 }
 
 void Serialization_Revert(SKSESerializationInterface* serializationInterface)
 {
-	_MESSAGE("Serialization_Revert begin");
-
 	g_experienceBuffer.clear();
-
-	_MESSAGE("Serialization_Revert end");
 }
 
 constexpr UInt32 serializationDataVersion = 1;
@@ -140,8 +135,6 @@ void Serialization_Save(SKSESerializationInterface* serializationInterface) {
 
 	if (serializationInterface->OpenRecord('DATA', serializationDataVersion)) {
 		serializationInterface->WriteRecordData(&g_experienceBuffer, sizeof(g_experienceBuffer));
-
-		_MESSAGE("saved");
 	}
 
 	_MESSAGE("Serialization_Save end");
@@ -182,41 +175,29 @@ void Serialization_Load(SKSESerializationInterface* serializationInterface) {
 }
 
 void Messaging_Callback(SKSEMessagingInterface::Message* msg) {
+	_MESSAGE("Messaging_Callback begin");
+
 	if (msg->type == SKSEMessagingInterface::kMessage_DataLoaded) {
 		// All forms are loaded
 
-		_MESSAGE("kMessage_DataLoaded begin");
+		_MESSAGE("kMessage_DataLoaded");
 
-		Original_PlayerCharacter_AdvanceSkill = SKSEMemUtil::WriteVTableHook(_GetObjectVTable(*g_thePlayer), pcVTableAdvanceSkillOffset, PlayerCharacter_AdvanceSkill_Hooked);
-
-		/*
-		// Retrieve points to vtable for PlayerCharacter.
-		UInt32* pcVTable = (UInt32*)(*((UInt32*)(*g_thePlayer)));
-
-		// Save old AdvanceSkill method.
-		*reinterpret_cast<UInt32*>(&PlayerCharacter_AdvanceSkill) = (UInt32)pcVTable[pcVTableAdvanceSkillOffset];
-
-		// Let me write my hook!
-		UInt32 oldProtect = 0;
-		VirtualProtect(pcVTable + pcVTableAdvanceSkillMemOffset, sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect);
-
-		// Replace old AdvanceSkill method with my AdvanceSkill_Hooked function. 
-		pcVTable[pcVTableAdvanceSkillOffset] = (UInt32)AdvanceSkill_Hooked;
-
-		// I'm done writing.
-		VirtualProtect(pcVTable + pcVTableAdvanceSkillMemOffset, sizeof(void*), oldProtect, nullptr);
-		*/
-
-		_MESSAGE("kMessage_DataLoaded end");
+		if ((*g_dataHandler)->LookupLoadedModByName("SleepToGainExperience.esp")) {
+			PlayerCharacter_AdvanceSkill = SKSEMemUtil::WriteVTableHook(_GetObjectVTable(*g_thePlayer), pcVTableAdvanceSkillOffset, PlayerCharacter_AdvanceSkill_Hooked);
+		} else {
+			_MESSAGE("game plugin not enabled");
+		}
 	}
+
+	_MESSAGE("Messaging_Callback end");
 }
 
 void FlushBufferedExperience(StaticFunctionTag*, float daysSlept, bool interupted) {
-	//_MESSAGE("FlushBufferedExperience begin");
+	_MESSAGE("FlushBufferedExperience begin");
 
 	g_experienceBuffer.flushExperience((g_settings.enableSleepTimeRequirement ? fminf(1.0f, daysSlept / g_settings.minDaysSleepNeeded) : 1.0f) * (interupted ? g_settings.interuptedPenaltyPercent : 1.0f));
 
-	//_MESSAGE("FlushBufferedExperience end");
+	_MESSAGE("FlushBufferedExperience end");
 }
 void ClearBufferedExperience(StaticFunctionTag*) {
 	g_experienceBuffer.clear();
@@ -248,7 +229,7 @@ extern "C" {
 
 			return false;
 		}
-		else if (skse->runtimeVersion != RUNTIME_VERSION_1_9_32_0) {
+		else if (skse->runtimeVersion != RUNTIME_VERSION_1_5_39) {
 			_MESSAGE("unsupported runtime version %08X", skse->runtimeVersion);
 
 			return false;

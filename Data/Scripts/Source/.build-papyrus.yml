@@ -1,0 +1,8 @@
+game: skyrim
+output: D:\Projects\SkyrimSE\skse64\SleepToGainExperience\Data\Scripts
+imports:
+    - D:\Projects\SkyrimSE\skse64\SleepToGainExperience\Data\Scripts\Source
+    - C:\Games\Steam\steamapps\common\Skyrim Special Edition\Data\Scripts\Source\SkyUI
+    - C:\Games\Steam\steamapps\common\Skyrim Special Edition\Data\Scripts\Source\SKSE
+    - C:\Games\Steam\steamapps\common\Skyrim Special Edition\Data\Scripts\Source
+optimize: true
