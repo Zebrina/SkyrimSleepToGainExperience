@@ -1,9 +1,12 @@
 scriptname SleepToGainExperience extends Quest
 
-
-
+float function GetBufferedPointsBySkill(string avName) global native
 function FlushBufferedExperience(float daysSlept, bool interupted) global native
+function FlushBufferedExperienceBySkill(string avName, float daysSlept, bool interupted) global native
+function MultiplyBufferedExperience(float mult) global native
+function MultiplyBufferedExperienceBySkill(string avName, float mult) global native
 function ClearBufferedExperience() global native
+function ClearBufferedExperienceBySkill(string avName) global native
 
 GlobalVariable Survival_ModeToggle = none
 bool property SurvivalEnabled hidden

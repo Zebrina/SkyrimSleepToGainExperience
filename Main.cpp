@@ -1,5 +1,3 @@
-#include "SKSEMemUtil.h"
-
 #include "skse64/PluginAPI.h"
 #include "skse64_common/skse_version.h"
 #include "skse64/GameAPI.h"
@@ -12,15 +10,15 @@
 
 #include "skse64/PapyrusNativeFunctions.h"
 
+#include "SKSEMemUtil.h"
+#include "SkillExperienceBuffer.h"
+
 #include <cmath>
 
 constexpr char* PapyrusClassName = "SleepToGainExperience";
 
 constexpr UInt32 pcVTableAdvanceSkillOffset = 0xF7;
 //constexpr UInt32 pcVTableAdvanceSkillMemOffset = pcVTableAdvanceSkillOffset * 4;
-
-typedef void (*Actor_AdvanceSkill_Method)(Actor*, UInt32, float, UInt32, UInt32);
-Actor_AdvanceSkill_Method PlayerCharacter_AdvanceSkill = nullptr;
 
 IDebugLog gLog("SleepToGainExperience.log");
 
@@ -29,8 +27,6 @@ PluginHandle g_pluginHandle = kPluginHandle_Invalid;
 SKSESerializationInterface* g_serialization = nullptr;
 SKSEMessagingInterface*		g_messaging = nullptr;
 SKSEPapyrusInterface*		g_papyrus = nullptr;
-
-
 
 struct Settings {
 	UInt32 enableSleepTimeRequirement : 1;
@@ -45,60 +41,6 @@ UInt32: 31;
 };
 
 Settings g_settings;
-
-struct SkillExperienceBuffer {
-	enum : UInt32 {
-		OneHanded = 6,
-		FirstSkillId = OneHanded,
-		TwoHanded,
-		Marksman,		// Archery
-		Block,
-		Smithing,
-		HeavyArmor,
-		LightArmor,
-		Pickpocket,
-		LockPicking,
-		Sneak,
-		Alchemy,
-		SpeechCraft,	// Speech
-		Alteration,
-		Conjuration,
-		Destruction,
-		Mysticism,		// Illusion
-		Restoration,
-		Enchanting,
-		LastSkillId = Enchanting,
-	};
-
-	float expBuf[(LastSkillId - FirstSkillId) + 1];
-
-	inline SkillExperienceBuffer() {
-		clear();
-	}
-
-	void addExperience(UInt32 skillId, float points) {
-		if (skillId >= FirstSkillId && skillId <= LastSkillId) {
-			//_MESSAGE("adding %f experience to skill: %i", points, skillId);
-			expBuf[skillId - FirstSkillId] += points;
-		}
-	}
-
-	void flushExperience(float percent) {
-		//_MESSAGE("flushExperience(%f)", percent);
-		for (UInt32 skillId = FirstSkillId; skillId <= LastSkillId; ++skillId) {
-			float toAdd = expBuf[skillId - FirstSkillId] * percent;
-			if (toAdd > 0.0f) {
-				PlayerCharacter_AdvanceSkill(*g_thePlayer, skillId, toAdd, 0, 0);
-				expBuf[skillId - FirstSkillId] -= toAdd;
-			}
-		}
-	}
-
-	void clear() {
-		ZeroMemory(expBuf, sizeof(expBuf));
-	}
-};
-
 SkillExperienceBuffer g_experienceBuffer;
 
 void PlayerCharacter_AdvanceSkill_Hooked(Actor* _this, UInt32 skillId, float points, UInt32 unk1, UInt32 unk2) {
@@ -125,7 +67,7 @@ void PlayerCharacter_AdvanceSkill_Hooked(Actor* _this, UInt32 skillId, float poi
 
 void Serialization_Revert(SKSESerializationInterface* serializationInterface)
 {
-	g_experienceBuffer.clear();
+	ZeroMemory(&g_experienceBuffer, sizeof(g_experienceBuffer));
 }
 
 constexpr UInt32 serializationDataVersion = 1;
@@ -156,6 +98,13 @@ void Serialization_Load(SKSESerializationInterface* serializationInterface) {
 
 					_MESSAGE("read data");
 				}
+#ifndef SKILLEXPERIENCEBUFFER_NOEXPERIMENTAL
+				else if (length == sizeof(g_experienceBuffer.expBuf)) {
+					serializationInterface->ReadRecordData(&g_experienceBuffer, length);
+
+					_MESSAGE("read data in old format");
+				}
+#endif
 				else {
 					_MESSAGE("empty or invalid data");
 				}
@@ -192,21 +141,55 @@ void Messaging_Callback(SKSEMessagingInterface::Message* msg) {
 	_MESSAGE("Messaging_Callback end");
 }
 
+float GetBufferedPointsBySkill(StaticFunctionTag*, BSFixedString skillName) {
+	UInt32 skillId = LookupActorValueByName(skillName.data);
+	if (skillId >= SkillExperienceBuffer::FirstSkillId && skillId <= SkillExperienceBuffer::LastSkillId) {
+		return g_experienceBuffer.getExperience(skillId);
+	}
+	return 0.0f;
+}
 void FlushBufferedExperience(StaticFunctionTag*, float daysSlept, bool interupted) {
-	_MESSAGE("FlushBufferedExperience begin");
-
 	g_experienceBuffer.flushExperience((g_settings.enableSleepTimeRequirement ? fminf(1.0f, daysSlept / g_settings.minDaysSleepNeeded) : 1.0f) * (interupted ? g_settings.interuptedPenaltyPercent : 1.0f));
-
-	_MESSAGE("FlushBufferedExperience end");
+}
+void FlushBufferedExperienceBySkill(StaticFunctionTag*, BSFixedString skillName, float daysSlept, bool interupted) {
+	UInt32 skillId = LookupActorValueByName(skillName.data);
+	if (skillId >= SkillExperienceBuffer::FirstSkillId && skillId <= SkillExperienceBuffer::LastSkillId) {
+		g_experienceBuffer.flushExperienceBySkill(skillId, (g_settings.enableSleepTimeRequirement ? fminf(1.0f, daysSlept / g_settings.minDaysSleepNeeded) : 1.0f) * (interupted ? g_settings.interuptedPenaltyPercent : 1.0f));
+	}
+}
+void MultiplyBufferedExperience(StaticFunctionTag*, float value) {
+	g_experienceBuffer.multExperience(value);
+}
+void MultiplyBufferedExperienceBySkill(StaticFunctionTag*, BSFixedString skillName, float value) {
+	UInt32 skillId = LookupActorValueByName(skillName.data);
+	if (skillId >= SkillExperienceBuffer::FirstSkillId && skillId <= SkillExperienceBuffer::LastSkillId) {
+		g_experienceBuffer.multExperienceBySkill(skillId, value);
+	}
 }
 void ClearBufferedExperience(StaticFunctionTag*) {
 	g_experienceBuffer.clear();
 }
+void ClearBufferedExperienceBySkill(StaticFunctionTag*, BSFixedString skillName) {
+	UInt32 skillId = LookupActorValueByName(skillName.data);
+	if (skillId >= SkillExperienceBuffer::FirstSkillId && skillId <= SkillExperienceBuffer::LastSkillId) {
+		g_experienceBuffer.clearBySkill(skillId);
+	}
+}
 
 bool Papyrus_RegisterFunctions(VMClassRegistry* registry) {
+	registry->RegisterFunction(new NativeFunction1<StaticFunctionTag, float, BSFixedString>("GetBufferedPointsBySkill", PapyrusClassName, GetBufferedPointsBySkill, registry));
 	registry->RegisterFunction(new NativeFunction2<StaticFunctionTag, void, float, bool>("FlushBufferedExperience", PapyrusClassName, FlushBufferedExperience, registry));
+	registry->RegisterFunction(new NativeFunction3<StaticFunctionTag, void, BSFixedString, float, bool>("FlushBufferedExperienceBySkill", PapyrusClassName, FlushBufferedExperienceBySkill, registry));
+	registry->RegisterFunction(new NativeFunction1<StaticFunctionTag, void, float>("MultiplyBufferedExperience", PapyrusClassName, MultiplyBufferedExperience, registry));
+	registry->RegisterFunction(new NativeFunction2<StaticFunctionTag, void, BSFixedString, float>("MultiplyBufferedExperienceBySkill", PapyrusClassName, MultiplyBufferedExperienceBySkill, registry));
 	registry->RegisterFunction(new NativeFunction0<StaticFunctionTag, void>("ClearBufferedExperience", PapyrusClassName, ClearBufferedExperience, registry));
+	registry->RegisterFunction(new NativeFunction1<StaticFunctionTag, void, BSFixedString>("ClearBufferedExperienceBySkill", PapyrusClassName, ClearBufferedExperienceBySkill, registry));
+	
+	registry->SetFunctionFlags(PapyrusClassName, "GetBufferedPointsBySkill", VMClassRegistry::kFunctionFlag_NoWait);
+	registry->SetFunctionFlags(PapyrusClassName, "MultiplyBufferedExperience", VMClassRegistry::kFunctionFlag_NoWait);
+	registry->SetFunctionFlags(PapyrusClassName, "MultiplyBufferedExperienceBySkill", VMClassRegistry::kFunctionFlag_NoWait);
 	registry->SetFunctionFlags(PapyrusClassName, "ClearBufferedExperience", VMClassRegistry::kFunctionFlag_NoWait);
+	registry->SetFunctionFlags(PapyrusClassName, "ClearBufferedExperienceBySkill", VMClassRegistry::kFunctionFlag_NoWait);
 
 	return true;
 }
@@ -219,7 +202,7 @@ extern "C" {
 		// populate info structure
 		info->infoVersion = PluginInfo::kInfoVersion;
 		info->name = "Sleep To Gain Experience Plugin";
-		info->version = 2;
+		info->version = 3;
 
 		// store plugin handle so we can identify ourselves later
 		g_pluginHandle = skse->GetPluginHandle();
@@ -229,7 +212,7 @@ extern "C" {
 
 			return false;
 		}
-		else if (skse->runtimeVersion != RUNTIME_VERSION_1_5_39) {
+		else if (skse->runtimeVersion != CURRENT_RELEASE_RUNTIME) {
 			_MESSAGE("unsupported runtime version %08X", skse->runtimeVersion);
 
 			return false;
