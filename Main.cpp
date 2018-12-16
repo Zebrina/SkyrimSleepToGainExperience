@@ -131,7 +131,7 @@ void Messaging_Callback(SKSEMessagingInterface::Message* msg) {
 
 		_MESSAGE("kMessage_DataLoaded");
 
-		if ((*g_dataHandler)->LookupLoadedModByName("SleepToGainExperience.esp")) {
+		if ((*g_dataHandler)->LookupLoadedModByName("SleepToGainExperience.esp") || (*g_dataHandler)->LookupLoadedLightModByName("SleepToGainExperience.esl")) {
 			PlayerCharacter_AdvanceSkill = SKSEMemUtil::WriteVTableHook(_GetObjectVTable(*g_thePlayer), pcVTableAdvanceSkillOffset, PlayerCharacter_AdvanceSkill_Hooked);
 		} else {
 			_MESSAGE("game plugin not enabled");
